@@ -1,9 +1,9 @@
 import { PrismaAdapter } from "@auth/prisma-adapter";
 import { type DefaultSession, type NextAuthConfig } from "next-auth";
 import Credentials from "next-auth/providers/credentials";
-import { type Adapter } from "next-auth/adapters"; // <--- 1. ADD THIS IMPORT
 import { db } from "@/server/db";
 import { type Role } from "@prisma/client";
+import { type Adapter } from "next-auth/adapters";
 
 /**
  * Module augmentation for `next-auth` types.
@@ -28,34 +28,51 @@ declare module "@auth/core/jwt" {
 }
 
 export const authConfig: NextAuthConfig = {
+  // ---------------------------------------------------------
+  // 1. THIS IS THE MISSING PIECE!
+  // Tell NextAuth to use YOUR custom page, not the default one.
+  // ---------------------------------------------------------
+  pages: {
+    signIn: "/auth/signin", 
+    // error: "/auth/error", // (Optional)
+  },
+
   providers: [
     Credentials({
-      name: "Dev Login",
+      name: "Station Login",
       credentials: {
-        username: { label: "Username", type: "text", placeholder: "admin" },
+        username: { label: "Username", type: "text" },
+        loginRole: { label: "Role", type: "text" } 
       },
       async authorize(credentials) {
         const username = (credentials?.username as string) ?? "admin";
+        const expectedRole = (credentials?.loginRole as string) ?? ""; 
         const email = `${username}@example.com`;
 
         let user = await db.user.findFirst({ where: { email } });
 
+        // Auto-create logic
         if (!user) {
+          let role: Role = "CASHIER";
+          if (expectedRole) role = expectedRole as Role; 
+          
           user = await db.user.create({
-            data: {
-              name: username,
-              email: email,
-              role: "CASHIER",
-            },
+            data: { name: username, email, role },
           });
+        }
+
+        // Strict Role Check
+        if (expectedRole && user.role !== expectedRole && user.role !== "ADMIN") {
+            // Return null treats it as "Invalid Credentials" (Login Failed)
+            // This stops NextAuth from forcing a page reload.
+            return null; 
         }
 
         return user;
       },
     }),
   ],
-  // ⬇️ 2. CAST THIS LINE
-  adapter: PrismaAdapter(db) as Adapter, 
+  adapter: PrismaAdapter(db) as Adapter,
   session: {
     strategy: "jwt",
   },

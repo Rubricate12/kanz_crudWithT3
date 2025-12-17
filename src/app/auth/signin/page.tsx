@@ -3,7 +3,6 @@
 import { signIn } from "next-auth/react";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import Image from "next/image"; // Use this if you have icon images
 
 // Define the roles
 type Role = "CASHIER" | "KITCHEN" | "BARISTA" | null;
@@ -18,32 +17,62 @@ export default function SignInPage() {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState("");
+
+  // --- POPUP STATE ---
+  const [showErrorPopup, setShowErrorPopup] = useState(false);
+  const [errorMessage, setErrorMessage] = useState("");
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
-    setError("");
+    setErrorMessage(""); 
+    setShowErrorPopup(false);
 
-    // For dev: use the entered username, or default to the role name
-    const loginUser = username || selectedRole?.toLowerCase(); 
+    const loginUser = username || selectedRole?.toLowerCase();
 
-    const result = await signIn("credentials", {
-      username: loginUser,
-      password: password,
-      redirect: false,
-    });
+    try {
+      console.log("Attempting login..."); 
 
-    if (result?.ok) {
-      router.push("/dashboard"); 
-      router.refresh();
-    } else {
+      const result = await signIn("credentials", {
+        username: loginUser,
+        password: password,
+        loginRole: selectedRole, 
+        redirect: false, 
+      });
+
+      console.log("Login Result:", result); 
+
+      // 🛑 FIX: Check for ERROR first!
+      // Even if ok is true, if there is an error string, it failed.
+      if (result?.error) {
+        // LOGIN FAILED
+        setPassword(""); // Clear password
+        
+        // Show specific error based on what happened
+        if (selectedRole) {
+           setErrorMessage(`Access Denied: This account is not a ${selectedRole}.`);
+        } else {
+           setErrorMessage("Invalid Username or Password.");
+        }
+        setShowErrorPopup(true);
+      
+      } else if (result?.ok) {
+        // LOGIN SUCCESS (Only if no error)
+        router.push("/dashboard"); 
+        router.refresh();
+      } 
+      
+    } catch (err) {
+      console.error("CRITICAL LOGIN ERROR:", err);
+      setPassword("");
+      setErrorMessage("System Error. Please check console.");
+      setShowErrorPopup(true);
+    } finally {
       setIsLoading(false);
-      setError("Login failed. Please check credentials.");
     }
   };
 
-  // --- VIEW 1: STAFF MENU (Matches image_63e679.png) ---
+  // --- VIEW 1: STAFF MENU ---
   if (!selectedRole) {
     return (
       <div className="flex min-h-screen flex-col items-center justify-center bg-white font-sans text-black">
@@ -56,23 +85,18 @@ export default function SignInPage() {
           </h1>
 
           <div className="flex flex-wrap justify-center gap-8 md:gap-16">
-            {/* Cashier Button */}
             <RoleButton 
               label="Cashier" 
               color="border-blue-500 text-blue-500"
-              icon="💰" // You can replace this with <Image /> later
+              icon="💰" 
               onClick={() => setSelectedRole("CASHIER")} 
             />
-            
-            {/* Kitchen Button */}
             <RoleButton 
               label="Kitchen" 
               color="border-green-500 text-green-500"
               icon="👨‍🍳" 
               onClick={() => setSelectedRole("KITCHEN")} 
             />
-            
-            {/* Barista Button */}
             <RoleButton 
               label="Barista" 
               color="border-[#3d2b1f] text-[#3d2b1f]"
@@ -88,17 +112,14 @@ export default function SignInPage() {
             BACK
           </button>
         </div>
-
-        {/* Bottom Yellow Bar */}
         <div className="fixed bottom-0 h-12 w-full bg-[#FCD34D]" />
       </div>
     );
   }
 
-  // --- VIEW 2: LOGIN FORM (Matches image_63ee55.png) ---
+  // --- VIEW 2: LOGIN FORM ---
   return (
-    <div className="flex min-h-screen flex-col items-center justify-center bg-white font-sans text-black">
-      {/* Top Yellow Bar */}
+    <div className="relative flex min-h-screen flex-col items-center justify-center bg-white font-sans text-black">
       <div className="fixed top-0 h-12 w-full bg-[#FCD34D]" />
 
       <div className="z-10 w-full max-w-md p-6">
@@ -127,8 +148,6 @@ export default function SignInPage() {
               />
           </div>
           
-          {error && <p className="text-center text-sm text-red-500">{error}</p>}
-
           <button
             type="submit"
             disabled={isLoading}
@@ -148,8 +167,37 @@ export default function SignInPage() {
         </div>
       </div>
 
-      {/* Bottom Yellow Bar */}
       <div className="fixed bottom-0 h-12 w-full bg-[#FCD34D]" />
+
+      {/* --- ERROR POPUP --- */}
+      {showErrorPopup && (
+        <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
+            <div className="w-80 overflow-hidden rounded-xl bg-[#F0F0F0] shadow-2xl border-2 border-blue-400">
+                {/* Header */}
+                <div className="bg-[#D32F2F] py-3 text-center">
+                    <h3 className="text-xl font-bold text-white">Error</h3>
+                </div>
+                
+                {/* Body */}
+                <div className="p-6 text-center">
+                    <p className="font-semibold text-black leading-relaxed">
+                        {errorMessage}
+                    </p>
+                </div>
+
+                {/* Footer / Button */}
+                <div className="pb-6 flex justify-center">
+                    <button 
+                        onClick={() => setShowErrorPopup(false)}
+                        className="rounded-full bg-[#D32F2F] px-8 py-1 text-lg font-bold text-white shadow-sm hover:bg-red-700 active:scale-95"
+                    >
+                        OK
+                    </button>
+                </div>
+            </div>
+        </div>
+      )}
+
     </div>
   );
 }
