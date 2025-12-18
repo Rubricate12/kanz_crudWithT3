@@ -1,12 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { api } from "@/trpc/react";
 import { Search, ChevronLeft, Minus, Plus, Trash2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 
 // 1. DEFINE TYPES
-// This interface defines what a Product looks like from the Menu
 interface MenuItem {
   id: string;
   name: string;
@@ -14,7 +13,6 @@ interface MenuItem {
   categoryId: string;
 }
 
-// This interface defines what is inside the Cart
 interface CartItem {
   id: string;
   name: string;
@@ -45,8 +43,25 @@ export default function PosSystem({ onCancel }: { onCancel: () => void }) {
   const [selectedCategory, setSelectedCategory] = useState<string>("all");
   const [cart, setCart] = useState<CartItem[]>([]);
   const [search, setSearch] = useState("");
+  
+  // --- FIX START: Dynamic Date State ---
+  const [currentDate, setCurrentDate] = useState<string>("");
 
-  // 2. CART LOGIC (Fixed Type)
+  useEffect(() => {
+    // This runs only on the client to avoid hydration errors
+    const now = new Date();
+    const options: Intl.DateTimeFormatOptions = { 
+      weekday: 'long', 
+      day: 'numeric', 
+      month: 'long', 
+      year: 'numeric' 
+    };
+    // Result example: "Sunday, 30 November 2025"
+    setCurrentDate(now.toLocaleDateString('en-GB', options));
+  }, []);
+  // --- FIX END ---
+
+  // 2. CART LOGIC
   const addToCart = (item: MenuItem) => {
     setCart((prev) => {
       const existing = prev.find((i) => i.id === item.id);
@@ -166,7 +181,12 @@ export default function PosSystem({ onCancel }: { onCancel: () => void }) {
                     className="w-full bg-gray-200/50 rounded-xl py-3 pl-12 pr-4 outline-none focus:ring-2 focus:ring-[#FCD34D] transition-all"
                 />
             </div>
-            <div className="text-gray-500 font-medium">Sunday, 30 November 2025</div>
+            
+            {/* --- FIX START: Dynamic Date Display --- */}
+            <div className="text-gray-500 font-medium">
+                {currentDate || "Loading Date..."}
+            </div>
+            {/* --- FIX END --- */}
         </div>
 
         {/* Grid */}
