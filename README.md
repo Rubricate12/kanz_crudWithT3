@@ -1,29 +1,35 @@
-# Create T3 App
+# Kanz CRUD (T3 Stack)
 
-This is a [T3 Stack](https://create.t3.gg/) project bootstrapped with `create-t3-app`.
+A full-stack CRUD application built with the **T3 Stack**. This project leverages full-stack type safety to provide a robust and scalable architecture for managing data.
 
-## What's next? How do I make an app with this?
+![T3 Stack Banner](https://create.t3.gg/images/t3-banner.png)
 
-We try to keep this project as simple as possible, so you can start with just the scaffolding we set up for you, and add additional things later when they become necessary.
+## 🚀 Tech Stack
 
-If you are not familiar with the different technologies used in this project, please refer to the respective docs. If you still are in the wind, please join our [Discord](https://t3.gg/discord) and ask for help.
+-   **Framework:** [Next.js](https://nextjs.org) (App Router / Pages Router)
+-   **Language:** [TypeScript](https://www.typescriptlang.org)
+-   **Styling:** [Tailwind CSS](https://tailwindcss.com)
+-   **Database ORM:** [Prisma](https://prisma.io)
+-   **API:** [tRPC](https://trpc.io)
+-   **Authentication:** [NextAuth.js](https://next-auth.js.org) (Auth.js)
 
-- [Next.js](https://nextjs.org)
-- [NextAuth.js](https://next-auth.js.org)
-- [Prisma](https://prisma.io)
-- [Drizzle](https://orm.drizzle.team)
-- [Tailwind CSS](https://tailwindcss.com)
-- [tRPC](https://trpc.io)
+## ✨ Features
 
-## Learn More
+-   **🔐 Secure Authentication:** User login and session management via NextAuth.
+-   **🛡️ End-to-End Type Safety:** Types are shared between the client and server using tRPC, ensuring that if your backend changes, your frontend knows immediately.
+-   **⚡ High Performance:** Static and dynamic rendering powered by Next.js.
+-   **💾 Database Management:** Easy schema migrations and type-safe database queries with Prisma.
+-   **🎨 Modern UI:** Responsive and customizable design with Tailwind CSS.
 
-To learn more about the [T3 Stack](https://create.t3.gg/), take a look at the following resources:
+### Specific Modules
+-   **[Entity 1 e.g., Orders]:** Create, Read, Update, and Delete operations for [Orders].
+-   **[Entity 2 e.g., Menu Items]:** Management interface for [Items].
 
-- [Documentation](https://create.t3.gg/)
-- [Learn the T3 Stack](https://create.t3.gg/en/faq#what-learning-resources-are-currently-available) — Check out these awesome tutorials
+## 🛠️ Getting Started
 
-You can check out the [create-t3-app GitHub repository](https://github.com/t3-oss/create-t3-app) — your feedback and contributions are welcome!
+Follow these steps to run the project locally.
 
-## How do I deploy this?
-
-Follow our deployment guides for [Vercel](https://create.t3.gg/en/deployment/vercel), [Netlify](https://create.t3.gg/en/deployment/netlify) and [Docker](https://create.t3.gg/en/deployment/docker) for more information.
+### 1. Clone the repository
+```bash
+git clone [https://github.com/Rubricate12/kanz_crudWithT3.git](https://github.com/Rubricate12/kanz_crudWithT3.git)
+cd kanz_crudWithT3
