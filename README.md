@@ -16,14 +16,10 @@ A full-stack CRUD application built with the **T3 Stack**. This project leverage
 ## ✨ Features
 
 -   **🔐 Secure Authentication:** User login and session management via NextAuth.
--   **🛡️ End-to-End Type Safety:** Types are shared between the client and server using tRPC, ensuring that if your backend changes, your frontend knows immediately.
+-   **🛡️ End-to-End Type Safety:** Types are shared between the client and server using tRPC.
 -   **⚡ High Performance:** Static and dynamic rendering powered by Next.js.
--   **💾 Database Management:** Easy schema migrations and type-safe database queries with Prisma.
--   **🎨 Modern UI:** Responsive and customizable design with Tailwind CSS.
-
-### Specific Modules
--   **[Entity 1 e.g., Orders]:** Create, Read, Update, and Delete operations for [Orders].
--   **[Entity 2 e.g., Menu Items]:** Management interface for [Items].
+-   **💾 Database Management:** Easy schema migrations with Prisma.
+-   **🌱 Database Seeding:** Integrated scripts to populate initial data.
 
 ## 🛠️ Getting Started
 
