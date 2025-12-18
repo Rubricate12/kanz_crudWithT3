@@ -11,6 +11,7 @@ interface MenuItem {
   name: string;
   price: number;
   categoryId: string;
+  isAvailable: boolean; // Added strict typing for availability
 }
 
 interface CartItem {
@@ -23,8 +24,10 @@ interface CartItem {
 export default function PosSystem({ onCancel }: { onCancel: () => void }) {
   const router = useRouter();
 
-  // Fetch Data
-  const { data: categories, isLoading } = api.menu.getAll.useQuery();
+  // Fetch Data (With Auto-Refresh for Stock Updates)
+  const { data: categories, isLoading, refetch } = api.menu.getAll.useQuery(undefined, {
+    refetchInterval: 5000, // Check for updates every 5 seconds
+  });
 
   // Mutation: Save Order
   const createOrder = api.order.create.useMutation({
@@ -36,6 +39,8 @@ export default function PosSystem({ onCancel }: { onCancel: () => void }) {
     },
     onError: (err) => {
         alert("Failed to create order: " + err.message);
+        // If it failed because something just went out of stock, refresh immediately
+        refetch();
     }
   });
 
@@ -44,25 +49,25 @@ export default function PosSystem({ onCancel }: { onCancel: () => void }) {
   const [cart, setCart] = useState<CartItem[]>([]);
   const [search, setSearch] = useState("");
   
-  // --- FIX START: Dynamic Date State ---
+  // Dynamic Date State
   const [currentDate, setCurrentDate] = useState<string>("");
 
   useEffect(() => {
-    // This runs only on the client to avoid hydration errors
     const now = new Date();
     const options: Intl.DateTimeFormatOptions = { 
-      weekday: 'long', 
-      day: 'numeric', 
-      month: 'long', 
-      year: 'numeric' 
+      weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' 
     };
-    // Result example: "Sunday, 30 November 2025"
     setCurrentDate(now.toLocaleDateString('en-GB', options));
   }, []);
-  // --- FIX END ---
 
   // 2. CART LOGIC
   const addToCart = (item: MenuItem) => {
+    // --- STOCK CHECK ---
+    if (!item.isAvailable) {
+        alert("Sorry, this item is currently Sold Out.");
+        return;
+    }
+
     setCart((prev) => {
       const existing = prev.find((i) => i.id === item.id);
       if (existing) {
@@ -117,7 +122,7 @@ export default function PosSystem({ onCancel }: { onCancel: () => void }) {
         {/* Categories List */}
         <div className="flex-1 overflow-y-auto px-6 py-2 space-y-6">
             
-            {/* Group: Meals */}
+            {/* Group: Meals (Filtered by type="FOOD") */}
             <div>
                 <h3 className="text-[#FCD34D] font-bold text-sm tracking-wider mb-4 uppercase">Meals</h3>
                 <div className="space-y-2">
@@ -125,30 +130,36 @@ export default function PosSystem({ onCancel }: { onCancel: () => void }) {
                         label="All Menu" 
                         isActive={selectedCategory === "all"} 
                         onClick={() => setSelectedCategory("all")} 
-                     />
-                     {categories?.filter(c => c.slug === "food").map(cat => (
+                      />
+                      {categories?.filter(c => c.type === "FOOD").map(cat => (
                         <CategoryButton 
                             key={cat.id}
                             label={cat.name} 
                             isActive={selectedCategory === cat.id} 
                             onClick={() => setSelectedCategory(cat.id)} 
                         />
-                     ))}
+                      ))}
+                      {categories?.filter(c => c.type === "FOOD").length === 0 && (
+                        <div className="text-xs text-gray-400 italic pl-2">No meals found</div>
+                      )}
                 </div>
             </div>
 
-            {/* Group: Drinks */}
+            {/* Group: Drinks (Filtered by type="DRINK") */}
             <div>
                 <h3 className="text-[#FCD34D] font-bold text-sm tracking-wider mb-4 uppercase">Drink & Dessert</h3>
                 <div className="space-y-2">
-                     {categories?.filter(c => c.slug !== "food").map(cat => (
+                      {categories?.filter(c => c.type === "DRINK").map(cat => (
                         <CategoryButton 
                             key={cat.id}
                             label={cat.name} 
                             isActive={selectedCategory === cat.id} 
                             onClick={() => setSelectedCategory(cat.id)} 
                         />
-                     ))}
+                      ))}
+                      {categories?.filter(c => c.type === "DRINK").length === 0 && (
+                        <div className="text-xs text-gray-400 italic pl-2">No drinks found</div>
+                      )}
                 </div>
             </div>
         </div>
@@ -182,11 +193,10 @@ export default function PosSystem({ onCancel }: { onCancel: () => void }) {
                 />
             </div>
             
-            {/* --- FIX START: Dynamic Date Display --- */}
+            {/* Dynamic Date */}
             <div className="text-gray-500 font-medium">
-                {currentDate || "Loading Date..."}
+                {currentDate || "Loading..."}
             </div>
-            {/* --- FIX END --- */}
         </div>
 
         {/* Grid */}
@@ -199,9 +209,24 @@ export default function PosSystem({ onCancel }: { onCancel: () => void }) {
                         <div 
                             key={item.id}
                             onClick={() => addToCart(item)}
-                            className="bg-white rounded-xl p-4 shadow-sm hover:shadow-md cursor-pointer transition-all active:scale-95 flex flex-col items-center justify-center text-center h-48 group"
+                            className={`
+                                relative bg-white rounded-xl p-4 shadow-sm transition-all flex flex-col items-center justify-center text-center h-48 group overflow-hidden
+                                ${!item.isAvailable 
+                                    ? "opacity-60 grayscale cursor-not-allowed border border-gray-200" 
+                                    : "hover:shadow-md cursor-pointer active:scale-95"
+                                }
+                            `}
                         >
-                            <div className="font-bold text-gray-800 mb-2 group-hover:text-[#FCD34D] transition-colors">
+                            {/* --- SOLD OUT BADGE --- */}
+                            {!item.isAvailable && (
+                                <div className="absolute inset-0 z-10 flex items-center justify-center bg-gray-50/50">
+                                    <span className="bg-red-600 text-white text-xs font-bold px-3 py-1 rounded-full -rotate-12 shadow-md">
+                                        SOLD OUT
+                                    </span>
+                                </div>
+                            )}
+
+                            <div className={`font-bold text-gray-800 mb-2 transition-colors ${item.isAvailable ? "group-hover:text-[#FCD34D]" : ""}`}>
                                 {item.name}
                             </div>
                             <div className="text-gray-500 text-sm">
@@ -221,7 +246,7 @@ export default function PosSystem({ onCancel }: { onCancel: () => void }) {
          {/* Cart Header */}
          <div className="p-6 flex justify-between items-center">
             <span className="bg-[#FCD34D] px-4 py-2 rounded-lg font-bold text-sm">Order Menu</span>
-            <span className="font-medium text-gray-600">Order No 400</span>
+            <span className="font-medium text-gray-600">Order #New</span>
          </div>
 
          {/* Cart Items List */}

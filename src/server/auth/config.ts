@@ -4,9 +4,10 @@ import Credentials from "next-auth/providers/credentials";
 import { db } from "@/server/db";
 import { type Role } from "@prisma/client";
 import { type Adapter } from "next-auth/adapters";
+import { compare } from "bcryptjs"; // Ensure you installed this: npm i bcryptjs
 
 /**
- * Module augmentation for `next-auth` types.
+ * Type Augmentation
  */
 declare module "next-auth" {
   interface Session extends DefaultSession {
@@ -28,13 +29,8 @@ declare module "@auth/core/jwt" {
 }
 
 export const authConfig: NextAuthConfig = {
-  // ---------------------------------------------------------
-  // 1. THIS IS THE MISSING PIECE!
-  // Tell NextAuth to use YOUR custom page, not the default one.
-  // ---------------------------------------------------------
   pages: {
     signIn: "/auth/signin", 
-    // error: "/auth/error", // (Optional)
   },
 
   providers: [
@@ -42,29 +38,41 @@ export const authConfig: NextAuthConfig = {
       name: "Station Login",
       credentials: {
         username: { label: "Username", type: "text" },
+        password: { label: "Password", type: "password" },
         loginRole: { label: "Role", type: "text" } 
       },
       async authorize(credentials) {
-        const username = (credentials?.username as string) ?? "admin";
-        const expectedRole = (credentials?.loginRole as string) ?? ""; 
-        const email = `${username}@example.com`;
+        const username = credentials?.username as string;
+        const password = credentials?.password as string;
+        const expectedRole = credentials?.loginRole as string; 
 
-        let user = await db.user.findFirst({ where: { email } });
+        // 1. Basic Validation
+        if (!username || !password) return null;
 
-        // Auto-create logic
+        // 2. Find User by Email
+        const email = `${username}@kanz.com`; 
+        const user = await db.user.findUnique({ where: { email } });
+
+        // ---------------------------------------------------------
+        // CRITICAL FIX: REMOVED AUTO-CREATE LOGIC
+        // If user doesn't exist, we return null (Login Failed)
+        // ---------------------------------------------------------
         if (!user) {
-          let role: Role = "CASHIER";
-          if (expectedRole) role = expectedRole as Role; 
-          
-          user = await db.user.create({
-            data: { name: username, email, role },
-          });
+            console.log("User not found:", email);
+            return null;
         }
 
-        // Strict Role Check
+        // 3. Password Check (Secure)
+        const isValidPassword = await compare(password, user.password);
+        if (!isValidPassword) {
+            console.log("Invalid Password for:", username);
+            return null;
+        }
+
+        // 4. Role Integrity Check
+        // Prevents a "Cashier" from logging in as "Admin"
         if (expectedRole && user.role !== expectedRole && user.role !== "ADMIN") {
-            // Return null treats it as "Invalid Credentials" (Login Failed)
-            // This stops NextAuth from forcing a page reload.
+            console.log(`Role Mismatch: Expected ${expectedRole}, got ${user.role}`);
             return null; 
         }
 

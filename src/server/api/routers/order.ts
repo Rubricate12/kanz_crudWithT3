@@ -1,26 +1,52 @@
 import { z } from "zod";
-import { createTRPCRouter, publicProcedure } from "@/server/api/trpc";
+import { createTRPCRouter, publicProcedure, protectedProcedure } from "@/server/api/trpc";
+import { TRPCError } from "@trpc/server";
 
 export const orderRouter = createTRPCRouter({
-  // 1. CREATE ORDER (Existing)
+  
+  // 1. CREATE ORDER (With Stock Validation)
   create: publicProcedure
     .input(z.object({
       items: z.array(z.object({
-        id: z.string(),
+        id: z.string(), // MenuItem ID
         qty: z.number(),
+        price: z.number().optional(), 
       })),
       total: z.number(),
+      paymentMethod: z.enum(["CASH", "QRIS", "CARD", "TRANSFER"]).optional(),
     }))
     .mutation(async ({ ctx, input }) => {
+      
+      // --- 1. VALIDATION STEP ---
+      // Fetch the actual items from DB to check availability
+      const itemIds = input.items.map((i) => i.id);
+      const dbItems = await ctx.db.menuItem.findMany({
+        where: { id: { in: itemIds } }
+      });
+
+      // Check if any item is Sold Out
+      for (const dbItem of dbItems) {
+        if (!dbItem.isAvailable) {
+            throw new TRPCError({
+                code: "BAD_REQUEST",
+                message: `FAILED: '${dbItem.name}' is currently Sold Out.`
+            });
+        }
+      }
+      // --------------------------
+
+      // 2. PROCEED TO CREATE ORDER
       const order = await ctx.db.order.create({
         data: {
           total: input.total,
           status: "PENDING",
+          paymentMethod: input.paymentMethod ?? null,
           items: {
             create: input.items.map((item) => ({
                 menuItem: { connect: { id: item.id } },
                 quantity: item.qty,
-                price: 0, // Ideally fetch real price here
+                price: item.price ?? 0, 
+                isReady: false 
             }))
           }
         },
@@ -28,27 +54,92 @@ export const orderRouter = createTRPCRouter({
       return { success: true, orderId: order.id };
     }),
 
-  // 2. GET DASHBOARD DATA (New!)
+  // 2. GET ALL ORDERS (Includes Category & isReady)
+  getAll: publicProcedure
+    .input(z.object({ 
+      status: z.enum(["ALL", "PENDING", "ON_PROCESS", "READY", "COMPLETED", "CANCELLED"]).optional() 
+    }).optional()) 
+    .query(async ({ ctx, input }) => {
+      const whereClause = (input?.status && input.status !== "ALL") 
+        ? { status: input.status } 
+        : {};
+
+      return ctx.db.order.findMany({
+        where: whereClause,
+        orderBy: { createdAt: "desc" },
+        include: {
+          items: {
+            include: {
+              menuItem: { 
+                include: { category: true } // Needed for Barista filtering
+              }, 
+            },
+            orderBy: { menuItem: { name: 'asc' } }
+          },
+        },
+      });
+    }),
+
+  // 3. TOGGLE ITEM STATUS (The missing piece causing your error)
+  toggleItemStatus: protectedProcedure
+    .input(z.object({ 
+      itemId: z.string(), 
+      isReady: z.boolean() 
+    }))
+    .mutation(async ({ ctx, input }) => {
+      return ctx.db.orderItem.update({
+        where: { id: input.itemId },
+        data: { isReady: input.isReady }
+      });
+    }),
+
+  // 4. UPDATE ORDER STATUS
+  updateStatus: protectedProcedure
+    .input(z.object({
+      id: z.coerce.number(), 
+      status: z.enum(["PENDING", "ON_PROCESS", "READY", "COMPLETED", "CANCELLED"]),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      return ctx.db.order.update({
+        where: { id: input.id },
+        data: { status: input.status },
+      });
+    }),
+
+  // 5. PAY ORDER
+  payOrder: publicProcedure
+    .input(z.object({
+        orderId: z.number(),
+        paymentMethod: z.enum(["CASH", "CARD", "TRANSFER", "QRIS"]),
+    }))
+    .mutation(async ({ ctx, input }) => {
+        return ctx.db.order.update({
+            where: { id: input.orderId },
+            data: { paymentMethod: input.paymentMethod }
+        });
+    }),
+
+  // 6. DASHBOARD DATA
   getDashboardData: publicProcedure.query(async ({ ctx }) => {
-    // A. Stats
     const totalOrders = await ctx.db.order.count();
     const newOrders = await ctx.db.order.count({ where: { status: "PENDING" } });
     const incomeResult = await ctx.db.order.aggregate({
         _sum: { total: true },
-        where: { status: "COMPLETED" } // Only count money from paid orders
+        where: { paymentMethod: { not: null } } 
     });
 
-    // B. Unpaid Orders (For the middle "Payment" column)
     const unpaidOrders = await ctx.db.order.findMany({
-        where: { status: { not: "COMPLETED" } }, 
-        orderBy: { createdAt: 'asc' }, // Oldest first
-        include: { items: { include: { menuItem: true } } } // Get item names for receipt
+        where: { 
+            paymentMethod: null,
+            status: { not: "CANCELLED" }
+        }, 
+        orderBy: { createdAt: 'asc' },
+        include: { items: { include: { menuItem: true } } }
     });
 
-    // C. Recent History (For the left "Order List" column)
     const recentOrders = await ctx.db.order.findMany({
         take: 10,
-        orderBy: { createdAt: 'desc' }, // Newest first
+        orderBy: { createdAt: 'desc' },
         include: { items: true }
     });
 
@@ -63,62 +154,29 @@ export const orderRouter = createTRPCRouter({
     };
   }),
 
-  // 3. PAY ORDER (New!)
-  payOrder: publicProcedure
-    .input(z.object({
-        orderId: z.number(),
-        paymentMethod: z.enum(["CASH", "CARD", "TRANSFER"]),
-    }))
-    .mutation(async ({ ctx, input }) => {
-        return ctx.db.order.update({
-            where: { id: input.orderId },
-            data: {
-                status: "COMPLETED",
-                paymentMethod: input.paymentMethod
-            }
-        });
-    }),
-
-    getAll: publicProcedure.query(async ({ ctx }) => {
-    return ctx.db.order.findMany({
-      orderBy: { createdAt: "desc" }, // Newest first
-      include: {
-        items: {
-          include: {
-            menuItem: true, // Get the names of the food
-          },
-        },
-      },
-    });
-  }),
-
+  // 6. INCOME REPORT
   getIncomeReport: publicProcedure.query(async ({ ctx }) => {
-    // A. Fetch ALL Completed Orders
     const orders = await ctx.db.order.findMany({
         where: { status: "COMPLETED" },
         include: { items: { include: { menuItem: { include: { category: true } } } } }
     });
 
-    // --- 1. Monthly Chart Data ---
     const monthlyData = Array.from({ length: 12 }, (_, i) => {
         const monthName = new Date(0, i).toLocaleString('default', { month: 'short' });
-        // Filter orders for this month (Simplified for current year)
         const monthOrders = orders.filter(o => o.createdAt.getMonth() === i);
         const income = monthOrders.reduce((sum, o) => sum + o.total, 0);
         
         return {
             name: monthName,
             income: income,
-            target: 50000000, // Hardcoded Target: 50 Million
+            target: 50000000,
         };
     });
 
-    // --- 2. Target Progress (Yearly) ---
     const yearlyIncome = orders.reduce((sum, o) => sum + o.total, 0);
-    const yearlyTarget = 600000000; // 50mil * 12
+    const yearlyTarget = 10000000;
     const targetPercentage = Math.round((yearlyIncome / yearlyTarget) * 100);
 
-    // --- 3. Helper to summarize sales by Category (Food vs Drink) ---
     const getSummary = (filteredOrders: typeof orders) => {
         let foodQty = 0, foodIncome = 0;
         let drinkQty = 0, drinkIncome = 0;
@@ -139,20 +197,16 @@ export const orderRouter = createTRPCRouter({
         return { foodQty, foodIncome, drinkQty, drinkIncome, total: foodIncome + drinkIncome };
     };
 
-    // Calculate time ranges
     const now = new Date();
     const startOfDay = new Date(now.setHours(0,0,0,0));
     
-    // Day Stats
     const dayOrders = orders.filter(o => o.createdAt >= startOfDay);
     const dayStats = getSummary(dayOrders);
 
-    // Week Stats (Rough approximation for last 7 days)
     const lastWeek = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
     const weekOrders = orders.filter(o => o.createdAt >= lastWeek);
     const weekStats = getSummary(weekOrders);
 
-    // Year Stats
     const yearStats = getSummary(orders);
 
     return {
@@ -170,10 +224,11 @@ export const orderRouter = createTRPCRouter({
     };
   }),
 
+  // 7. TRANSACTIONS
   getTransactions: publicProcedure.query(async ({ ctx }) => {
     const orders = await ctx.db.order.findMany({
         where: { status: "COMPLETED" },
-        orderBy: { createdAt: "desc" }, // Newest first
+        orderBy: { createdAt: "desc" },
         include: {
             items: {
                 include: {
@@ -183,12 +238,10 @@ export const orderRouter = createTRPCRouter({
         }
     });
 
-    // Transform data for the UI
     return orders.map(order => {
         let foodCount = 0;
         let drinkCount = 0;
         
-        // Count items
         order.items.forEach(item => {
             if (item.menuItem.category.slug === "food") foodCount += item.quantity;
             else drinkCount += item.quantity;
@@ -196,7 +249,7 @@ export const orderRouter = createTRPCRouter({
 
         return {
             id: order.id,
-            name: `Order #${order.id}`, // We don't have Customer Name in DB yet
+            name: `Order #${order.id}`,
             qty: foodCount + drinkCount,
             income: order.total,
             foodCount,

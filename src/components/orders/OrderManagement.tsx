@@ -1,21 +1,29 @@
 "use client";
 
 import { useState } from "react";
-import { Search, Calculator, CheckCircle2, Printer, X } from "lucide-react";
+import { Search, Calculator, CheckCircle2, Printer, X, Eye, Clock, XCircle } from "lucide-react";
 import { api } from "@/trpc/react";
 
 export default function OrderManagement() {
   // 1. Fetch Real Data
   const { data: orders, isLoading, refetch } = api.order.getAll.useQuery();
   
-  // 2. Local State
+  // 2. Mutations (For cancelling orders, etc)
+  const updateStatus = api.order.updateStatus.useMutation({
+    onSuccess: () => refetch(),
+  });
+
+  // 3. Local State
   const [activeTab, setActiveTab] = useState("All");
   const [search, setSearch] = useState("");
-  const [selectedOrder, setSelectedOrder] = useState<any | null>(null); // For Payment Modal
+  
+  // Modals State
+  const [selectedOrder, setSelectedOrder] = useState<any | null>(null); // For Payment
+  const [viewingOrder, setViewingOrder] = useState<any | null>(null);   // For Details [NEW]
 
   const filters = ["All", "Pending", "Completed"]; 
 
-  // 3. Filter Logic
+  // 4. Filter Logic
   const filteredOrders = orders?.filter((order) => {
     // Tab Filter
     const matchesTab = 
@@ -23,11 +31,19 @@ export default function OrderManagement() {
         activeTab === "Pending" ? order.status === "PENDING" :
         activeTab === "Completed" ? order.status === "COMPLETED" : true;
 
-    // Search Filter (by Order ID)
+    // Search Filter (Safe conversion to string)
     const matchesSearch = order.id.toString().includes(search);
 
     return matchesTab && matchesSearch;
   });
+
+  // Handle Cancel Order
+  const handleCancel = (id: string) => {
+    if(confirm("Are you sure you want to CANCEL this order?")) {
+        updateStatus.mutate({ id, status: "CANCELLED" });
+        setViewingOrder(null); // Close modal if open
+    }
+  };
 
   if (isLoading) return <div className="p-10 text-center">Loading Orders...</div>;
 
@@ -37,7 +53,9 @@ export default function OrderManagement() {
       {/* HEADER */}
       <div className="flex justify-between items-center mb-8">
         <h1 className="text-3xl font-bold text-slate-800">Orders</h1>
-        <div className="text-gray-500 font-medium">Sunday, 30 November 2025</div>
+        <div className="text-gray-500 font-medium">
+            {new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
+        </div>
       </div>
 
       {/* FILTERS */}
@@ -76,11 +94,11 @@ export default function OrderManagement() {
             {filteredOrders?.map((order) => (
                 <div key={order.id} className="bg-white p-6 rounded-3xl shadow-sm flex flex-col gap-4">
                     
-                    {/* Card Header */}
+                    {/* CARD HEADER */}
                     <div className="flex justify-between items-start">
                         <div className="flex items-center gap-4">
                             <div className="h-12 w-12 bg-[#FCD34D] rounded-xl flex items-center justify-center font-bold text-xl text-black shadow-sm">
-                                #{order.id}
+                                #{order.id.toString()}
                             </div>
                             <div>
                                 <div className="font-bold text-lg text-slate-800">Guest</div>
@@ -89,27 +107,37 @@ export default function OrderManagement() {
                                 </div>
                             </div>
                         </div>
+                        
+                        {/* NEW BADGE LAYOUT */}
                         <div className="flex flex-col items-end gap-1">
+                            {/* 1. Kitchen Status Badge */}
                             <StatusBadge status={order.status} />
+                            
+                            {/* 2. Payment Status Text */}
                             <span className={`text-[10px] font-bold uppercase tracking-wider ${
-                                order.status === "COMPLETED" ? "text-green-600" : "text-orange-500"
+                                order.paymentMethod ? "text-green-600" : "text-orange-500"
                             }`}>
-                                {order.status === "COMPLETED" ? "PAID" : "UNPAID"}
+                                {order.paymentMethod ? "PAID" : "UNPAID"}
                             </span>
                         </div>
                     </div>
 
                     <div className="border-b border-gray-100 pb-2"></div>
 
-                    {/* Items List */}
+                    {/* Items List (Limited to 3 for preview) */}
                     <div className="space-y-2">
-                        {order.items.map((item) => (
+                        {order.items.slice(0, 3).map((item) => (
                             <div key={item.id} className="flex justify-between text-sm font-medium text-gray-600">
                                 <span className="w-1/2">{item.menuItem.name}</span>
                                 <span className="w-1/4 text-center">x{item.quantity}</span>
                                 <span className="w-1/4 text-right">Rp{((item.price || item.menuItem.price) * item.quantity).toLocaleString("id-ID")}</span>
                             </div>
                         ))}
+                        {order.items.length > 3 && (
+                            <div className="text-xs text-center text-gray-400 italic">
+                                + {order.items.length - 3} more items...
+                            </div>
+                        )}
                     </div>
 
                     {/* Total */}
@@ -120,17 +148,21 @@ export default function OrderManagement() {
 
                     {/* Action Buttons */}
                     <div className="grid grid-cols-2 gap-4 mt-2">
-                        <button className="bg-[#D1FAE5] text-[#065F46] py-3 rounded-xl font-bold text-sm hover:bg-[#A7F3D0] transition-colors">
-                            See Details
+                        {/* 1. SEE DETAILS BUTTON (Now working) */}
+                        <button 
+                            onClick={() => setViewingOrder(order)}
+                            className="bg-[#D1FAE5] text-[#065F46] py-3 rounded-xl font-bold text-sm hover:bg-[#A7F3D0] transition-colors flex items-center justify-center gap-2"
+                        >
+                            <Eye size={16} /> Details
                         </button>
                         
-                        {/* PAYMENT BUTTON - CONNECTED */}
+                        {/* UPDATE PAYMENT BUTTON LOGIC */}
                         <button 
-                            disabled={order.status === "COMPLETED"} 
-                            onClick={() => setSelectedOrder(order)} // <--- Open Modal Logic
+                            disabled={!!order.paymentMethod} // Disable if paymentMethod exists (is not null)
+                            onClick={() => setSelectedOrder(order)} 
                             className="bg-[#FCD34D] text-black py-3 rounded-xl font-bold text-sm hover:bg-[#fbbf24] shadow-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed disabled:bg-gray-200 disabled:text-gray-400"
                         >
-                            {order.status === "COMPLETED" ? "Paid" : "Payment"}
+                            {order.paymentMethod ? "Paid" : "Payment"}
                         </button>
                     </div>
 
@@ -152,9 +184,68 @@ export default function OrderManagement() {
             onClose={() => setSelectedOrder(null)} 
             onSuccess={() => {
                 setSelectedOrder(null);
-                refetch(); // Refresh list to show updated status
+                refetch();
             }}
         />
+      )}
+
+      {/* --- DETAILS MODAL  --- */}
+      {viewingOrder && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm animate-in fade-in duration-200 p-4">
+            <div className="w-full max-w-md bg-white rounded-3xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+                
+                {/* Header */}
+                <div className="p-6 border-b border-gray-100 flex justify-between items-center bg-gray-50">
+                    <div>
+                        <h2 className="text-xl font-bold">Order Details</h2>
+                        <div className="text-sm text-gray-500">#{viewingOrder.id} • {new Date(viewingOrder.createdAt).toLocaleString()}</div>
+                    </div>
+                    <button onClick={() => setViewingOrder(null)} className="p-2 bg-white rounded-full text-gray-400 hover:text-red-500 border hover:bg-red-50"><X size={20} /></button>
+                </div>
+
+                {/* Items List */}
+                <div className="p-6 overflow-y-auto flex-1 space-y-4">
+                    {viewingOrder.items.map((item: any) => (
+                        <div key={item.id} className="flex justify-between items-center">
+                            <div className="flex items-center gap-3">
+                                <div className="h-8 w-8 bg-[#FCD34D] rounded-lg flex items-center justify-center font-bold text-sm">
+                                    {item.quantity}
+                                </div>
+                                <div>
+                                    <div className="font-bold text-gray-800">{item.menuItem.name}</div>
+                                    <div className="text-xs text-gray-400">Rp{item.menuItem.price.toLocaleString("id-ID")}</div>
+                                </div>
+                            </div>
+                            <div className="font-bold">
+                                Rp{((item.price || item.menuItem.price) * item.quantity).toLocaleString("id-ID")}
+                            </div>
+                        </div>
+                    ))}
+                </div>
+
+                {/* Footer Actions */}
+                <div className="p-6 border-t border-gray-100 bg-gray-50">
+                    <div className="flex justify-between items-center mb-6">
+                        <span className="text-gray-500 font-bold">Total</span>
+                        <span className="text-2xl font-bold">Rp{viewingOrder.total.toLocaleString("id-ID")}</span>
+                    </div>
+                    
+                    <div className="flex gap-3">
+                        {viewingOrder.status === "PENDING" && (
+                            <button 
+                                onClick={() => handleCancel(viewingOrder.id.toString())}
+                                className="flex-1 py-3 border-2 border-red-100 text-red-500 font-bold rounded-xl hover:bg-red-50 transition-colors flex items-center justify-center gap-2"
+                            >
+                                <XCircle size={18}/> Cancel Order
+                            </button>
+                        )}
+                        <button className="flex-1 py-3 bg-white border border-gray-200 text-gray-700 font-bold rounded-xl hover:bg-gray-100 transition-colors flex items-center justify-center gap-2">
+                            <Printer size={18}/> Print
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
       )}
 
     </div>
@@ -167,17 +258,17 @@ function StatusBadge({ status }: { status: string }) {
     const styles: Record<string, string> = {
         "COMPLETED": "bg-[#D1FAE5] text-[#065F46]", // Ready/Done look
         "PENDING": "bg-[#FEF3C7] text-[#92400E]", // Cooking look
+        "CANCELLED": "bg-red-100 text-red-600",
     };
 
     return (
         <span className={`px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wide ${styles[status] || "bg-gray-100 text-gray-600"}`}>
-            {status === "COMPLETED" ? "Ready" : "On Process"}
+            {status}
         </span>
     );
 }
 
-// --- PAYMENT MODAL (Reused) ---
-
+// --- PAYMENT MODAL (Your Existing Component) ---
 function PaymentModal({ order, onClose, onSuccess }: { order: any, onClose: () => void, onSuccess: () => void }) {
     const [step, setStep] = useState<"SUMMARY" | "METHOD" | "AMOUNT" | "SUCCESS">("SUMMARY");
     const [method, setMethod] = useState<"CASH" | "CARD" | "TRANSFER" | null>(null);

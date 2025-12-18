@@ -1,7 +1,7 @@
 "use client";
 
 import { signOut, useSession } from "next-auth/react";
-import { useState } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { api } from "@/trpc/react";
 import { 
   LayoutDashboard, 
@@ -18,19 +18,40 @@ import {
   Printer 
 } from "lucide-react";
 
-// Import all sub-pages
+// --- CUSTOM COMPONENTS IMPORTS ---
 import PosSystem from "@/components/pos/PosSystem";
-import OrderManagement from "@/components/orders/OrderManagement";
-import IncomeReport from "@/components/reports/IncomeReport";
+import OrderManagement from "@/components/orders/OrderManagement"; 
+import IncomeReport from "@/components/reports/IncomeReport";     
 
 export default function CashierDashboard() {
   const { data: session } = useSession();
   
-  // 1. FETCH DATA FOR DASHBOARD
+  // 1. FETCH DATA
+  // Dashboard Stats
   const { data, refetch } = api.order.getDashboardData.useQuery();
+  
+  // REAL-TIME MENU DATA (For Out of Stock List)
+  // Refetches every 5 seconds so Cashier sees Kitchen updates instantly
+  const { data: menuData } = api.menu.getAll.useQuery(undefined, {
+    refetchInterval: 5000 
+  });
 
-  // 2. VIEW STATE (Handles 4 Screens)
+  // 2. VIEW STATE
   const [view, setView] = useState<"DASHBOARD" | "POS" | "ORDERS" | "INCOME">("DASHBOARD");
+
+  // 3. DYNAMIC DATE
+  const [currentDate, setCurrentDate] = useState<string>("");
+  useEffect(() => {
+    const now = new Date();
+    setCurrentDate(now.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }));
+  }, []);
+
+  // 4. DERIVED DATA (Filter for Out of Stock)
+  const unavailableItems = useMemo(() => {
+    if (!menuData) return [];
+    // Flatten categories and find items where isAvailable is false
+    return menuData.flatMap(cat => cat.items).filter(item => !item.isAvailable);
+  }, [menuData]);
 
   // MODAL STATE
   const [selectedOrder, setSelectedOrder] = useState<any | null>(null);
@@ -46,7 +67,7 @@ export default function CashierDashboard() {
       {/* --- SIDEBAR --- */}
       <aside className="w-64 bg-white flex flex-col border-r border-gray-100 sticky top-0 h-screen z-20">
         <div className="p-8 flex items-center gap-3">
-            <div className="h-12 w-12 rounded-full border-2 border-black flex items-center justify-center font-bold text-xs text-center leading-none">
+             <div className="h-12 w-12 rounded-full border-2 border-black flex items-center justify-center font-bold text-xs text-center leading-none">
                 KANZ<br/>COFFEE
             </div>
             <div>
@@ -54,7 +75,6 @@ export default function CashierDashboard() {
             </div>
         </div>
         
-        {/* Navigation Logic */}
         <nav className="flex-1 px-4 space-y-2 mt-4">
             <NavItem 
                 icon={<LayoutDashboard size={20}/>} 
@@ -64,19 +84,19 @@ export default function CashierDashboard() {
             />
             <NavItem 
                 icon={<MenuIcon size={20}/>} 
-                label="Menu" 
+                label="Cashier (POS)" 
                 active={view === "POS"} 
                 onClick={() => setView("POS")} 
             />
             <NavItem 
                 icon={<ClipboardList size={20}/>} 
-                label="Order" 
+                label="Orders" 
                 active={view === "ORDERS"} 
                 onClick={() => setView("ORDERS")} 
             />
             <NavItem 
                 icon={<BarChart3 size={20}/>} 
-                label="Income Report" 
+                label="Reports" 
                 active={view === "INCOME"} 
                 onClick={() => setView("INCOME")} 
             />
@@ -93,99 +113,106 @@ export default function CashierDashboard() {
         </div>
       </aside>
 
-      {/* --- CONTENT AREA SWITCHER --- */}
-      
-      {view === "ORDERS" ? (
-          <OrderManagement />
-      ) : view === "INCOME" ? (
-          <IncomeReport />
-      ) : (
-          // DASHBOARD VIEW (Default)
-          <main className="flex-1 p-8 overflow-y-auto">
-            <header className="flex justify-between items-center mb-8">
-                <div className="text-xl font-bold">Good Morning, {session?.user?.name}</div>
-                <div className="text-gray-500 font-medium">Sunday, 30 November 2025</div>
-            </header>
+      {/* --- CONTENT AREA --- */}
+      <main className="flex-1 p-8 overflow-y-auto">
+        
+        {view === "ORDERS" && <OrderManagement />}
 
-            {/* Stats Row */}
-            <div className="grid grid-cols-4 gap-6 mb-8">
-                <StatCard title="New Orders" value={data?.stats.newOrders.toString() || "0"} />
-                <StatCard title="Total Orders" value={data?.stats.totalOrders.toString() || "0"} />
-                <StatCard 
-                    title="Income" 
-                    value={`Rp ${(data?.stats.income || 0).toLocaleString("id-ID")}`} 
-                />
-                
-                <button 
-                    onClick={() => setView("POS")}
-                    className="bg-[#FCD34D] rounded-2xl flex items-center justify-center gap-2 font-bold text-lg shadow-sm hover:bg-[#fbbf24] hover:shadow-md transition-all active:scale-95"
-                >
-                    <Plus size={24} />
-                    New Order
-                </button>
-            </div>
+        {view === "INCOME" && <IncomeReport />}
 
-            {/* Dashboard Columns */}
-            <div className="grid grid-cols-12 gap-8">
-                
-                {/* Recent Orders */}
-                <div className="col-span-5 bg-white p-6 rounded-3xl shadow-sm">
-                    <h2 className="font-bold text-xl mb-6">Order List</h2>
-                    <div className="relative mb-6">
-                        <Search className="absolute left-4 top-3.5 text-gray-400" size={20} />
-                        <input type="text" placeholder="Search a Order" className="w-full bg-gray-100 rounded-xl py-3 pl-12 pr-4 outline-none focus:ring-2 focus:ring-[#FCD34D]" />
-                    </div>
-                    <div className="space-y-4">
-                        {data?.recentOrders.map((order) => (
-                             <OrderRow 
-                                key={order.id}
-                                id={`#${order.id}`} 
-                                name={`Guest`} 
-                                status={order.status === "COMPLETED" ? "Paid" : "Unpaid"} 
-                                items={`${order.items.length} Items`} 
-                                badge={order.status}
-                                badgeColor={order.status === "COMPLETED" ? "bg-blue-50 text-blue-600" : "bg-yellow-100 text-yellow-700"}
-                             />
-                        ))}
-                        {data?.recentOrders.length === 0 && <p className="text-gray-400 text-center py-4">No recent orders</p>}
-                    </div>
+        {view === "DASHBOARD" && (
+            // --- DEFAULT DASHBOARD VIEW ---
+            <>
+                <header className="flex justify-between items-center mb-8">
+                    <div className="text-xl font-bold">Good Morning, {session?.user?.name}</div>
+                    <div className="text-gray-500 font-medium">{currentDate}</div>
+                </header>
+
+                {/* Stats Row */}
+                <div className="grid grid-cols-4 gap-6 mb-8">
+                    <StatCard title="New Orders" value={data?.stats.newOrders.toString() || "0"} />
+                    <StatCard title="Total Orders" value={data?.stats.totalOrders.toString() || "0"} />
+                    <StatCard 
+                        title="Income" 
+                        value={`Rp ${(data?.stats.income || 0).toLocaleString("id-ID")}`} 
+                    />
+                    
+                    <button 
+                        onClick={() => setView("POS")}
+                        className="bg-[#FCD34D] rounded-2xl flex items-center justify-center gap-2 font-bold text-lg shadow-sm hover:bg-[#fbbf24] hover:shadow-md transition-all active:scale-95"
+                    >
+                        <Plus size={24} />
+                        New Order
+                    </button>
                 </div>
 
-                {/* Payment Column */}
-                <div className="col-span-4 bg-white p-6 rounded-3xl shadow-sm">
-                    <h2 className="font-bold text-xl mb-6">Payment</h2>
-                    <div className="relative mb-6">
-                        <Search className="absolute left-4 top-3.5 text-gray-400" size={20} />
-                        <input type="text" placeholder="Search a Order" className="w-full bg-gray-100 rounded-xl py-3 pl-12 pr-4 outline-none focus:ring-2 focus:ring-[#FCD34D]" />
+                {/* Dashboard Columns */}
+                <div className="grid grid-cols-12 gap-8">
+                    
+                    {/* Recent Orders List */}
+                    <div className="col-span-5 bg-white p-6 rounded-3xl shadow-sm">
+                        <h2 className="font-bold text-xl mb-6">Recent Orders</h2>
+                        <div className="space-y-4">
+                            {data?.recentOrders.map((order) => (
+                                <OrderRow 
+                                    key={order.id}
+                                    id={`#${order.id}`} 
+                                    name={`Guest`} 
+                                    status={order.status === "COMPLETED" ? "Paid" : "Unpaid"} 
+                                    items={`${order.items.length} Items`} 
+                                    badge={order.status}
+                                    badgeColor={order.status === "COMPLETED" ? "bg-blue-50 text-blue-600" : "bg-yellow-100 text-yellow-700"}
+                                />
+                            ))}
+                            {data?.recentOrders.length === 0 && <p className="text-gray-400 text-center py-4">No recent orders</p>}
+                        </div>
                     </div>
-                    <div className="space-y-4">
-                        {data?.unpaidOrders.map((order) => (
-                            <PaymentRow 
-                                key={order.id}
-                                id={`P${order.id}`} 
-                                name="Guest" 
-                                orderId={`#Order ${order.id}`} 
-                                onPay={() => setSelectedOrder(order)} 
-                            />
-                        ))}
-                        {data?.unpaidOrders.length === 0 && <p className="text-gray-400 text-center py-4">No unpaid orders</p>}
+
+                    {/* Pending Payment List */}
+                    <div className="col-span-4 bg-white p-6 rounded-3xl shadow-sm">
+                        <h2 className="font-bold text-xl mb-6">Pending Payment</h2>
+                        <div className="space-y-4">
+                            {data?.unpaidOrders.map((order) => (
+                                <PaymentRow 
+                                    key={order.id}
+                                    id={`P${order.id}`} 
+                                    name="Guest" 
+                                    orderId={`#Order ${order.id}`} 
+                                    onPay={() => setSelectedOrder(order)} 
+                                />
+                            ))}
+                            {data?.unpaidOrders.length === 0 && <p className="text-gray-400 text-center py-4">No unpaid orders</p>}
+                        </div>
+                    </div>
+
+                    {/* Out of Stock (Now Dynamic) */}
+                    <div className="col-span-3 bg-white p-6 rounded-3xl shadow-sm h-fit">
+                        <div className="flex justify-between items-center mb-6">
+                            <h2 className="font-bold text-xl text-red-500">Out of Stock</h2>
+                        </div>
+                        
+                        {unavailableItems.length > 0 ? (
+                            <ul className="space-y-4">
+                                {unavailableItems.map((item) => (
+                                    <li key={item.id} className="text-sm font-medium text-gray-600 pb-3 border-b border-gray-100 last:border-0 flex justify-between">
+                                        <span>{item.name}</span>
+                                        <span className="text-xs bg-red-100 text-red-600 px-2 py-1 rounded-full">Empty</span>
+                                    </li>
+                                ))}
+                            </ul>
+                        ) : (
+                            <div className="text-center py-8 text-gray-400 text-sm italic">
+                                <CheckCircle2 size={32} className="mx-auto mb-2 opacity-20" />
+                                All menu items available
+                            </div>
+                        )}
                     </div>
                 </div>
+            </>
+        )}
+      </main>
 
-                {/* Out of Stock */}
-                <div className="col-span-3 bg-white p-6 rounded-3xl shadow-sm h-fit">
-                    <h2 className="font-bold text-xl mb-6">Out of Stock</h2>
-                    <ul className="space-y-4">
-                        <StockItem name="Vanilla Cookies Cream" />
-                        <StockItem name="Cireng" />
-                        <StockItem name="Pisang Goreng" />
-                    </ul>
-                </div>
-            </div>
-          </main>
-      )}
-
-      {/* --- PAYMENT MODAL (Global) --- */}
+      {/* --- PAYMENT MODAL --- */}
       {selectedOrder && (
         <PaymentModal 
             order={selectedOrder} 
@@ -201,7 +228,7 @@ export default function CashierDashboard() {
   );
 }
 
-// --- SUB COMPONENTS (Same as before) ---
+// --- SUB COMPONENTS ---
 
 function PaymentModal({ order, onClose, onSuccess }: { order: any, onClose: () => void, onSuccess: () => void }) {
     const [step, setStep] = useState<"SUMMARY" | "METHOD" | "AMOUNT" | "SUCCESS">("SUMMARY");
@@ -253,7 +280,7 @@ function PaymentModal({ order, onClose, onSuccess }: { order: any, onClose: () =
                                 {order.items.map((item: any) => (
                                     <div key={item.id} className="flex justify-between items-center text-sm font-medium text-gray-700">
                                         <span className="w-1/2">{item.menuItem?.name || "Item"}</span>
-                                        <span className="w-1/4 text-center">{item.quantity}</span>
+                                        <span className="w-1/4 text-center">x{item.quantity}</span>
                                         <span className="w-1/4 text-right">{((item.menuItem?.price || 0) * item.quantity).toLocaleString("id-ID")}</span>
                                     </div>
                                 ))}
@@ -280,6 +307,7 @@ function PaymentModal({ order, onClose, onSuccess }: { order: any, onClose: () =
                             <input type="number" autoFocus value={cashAmount} onChange={(e) => setCashAmount(e.target.value)} placeholder="Rp." className="w-full border border-gray-300 rounded-xl px-4 py-4 text-xl outline-none focus:border-[#FCD34D] mb-8" />
                             {cashGiven > 0 && <div className="mb-4 text-right text-sm font-bold text-gray-500">Change: <span className={change < 0 ? "text-red-500" : "text-green-500"}>{fmt(change)}</span></div>}
                             <button onClick={handleCashPayment} disabled={!cashAmount || cashGiven < totalAmount || payOrderMutation.isPending} className="w-full py-4 bg-[#FCD34D] rounded-full text-xl font-bold shadow-lg hover:bg-[#fbbf24] disabled:opacity-50 transition-all">{payOrderMutation.isPending ? "Processing..." : "Pay"}</button>
+                            <button onClick={() => setStep("METHOD")} className="w-full py-2 mt-2 text-gray-400 font-bold hover:text-black transition-colors">← Back</button>
                         </div>
                     )}
                     {step === "SUCCESS" && (
@@ -369,8 +397,4 @@ function PaymentRow({ id, name, orderId, onPay }: any) {
             <button onClick={onPay} className="bg-[#F4A261] text-white text-xs font-bold px-4 py-2 rounded-lg hover:bg-orange-500 transition-colors shadow-sm">Pay Now →</button>
         </div>
     )
-}
-
-function StockItem({ name }: any) {
-    return <li className="text-sm font-medium text-gray-600 pb-3 border-b border-gray-100 last:border-0">{name}</li>
 }
